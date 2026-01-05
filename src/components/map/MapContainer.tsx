@@ -48,6 +48,7 @@ export default function MapContainer() {
   const [isAddingClinic, setIsAddingClinic] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showMobileMap, setShowMobileMap] = useState(false); 
+  const [activeTooltip, setActiveTooltip] = useState<string | null>(null); // Mobile Tooltip Fix
 
   const [addressQuery, setAddressQuery] = useState('');
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
@@ -85,6 +86,9 @@ export default function MapContainer() {
     open_to_years: [] as string[], duration_weeks: 2, externship_year: new Date().getFullYear()
   });
   const [comment, setComment] = useState('');
+  
+  // TOOLTIP STATE (Fix for sidebar clipping)
+  const [tooltipState, setTooltipState] = useState<{ x: number, y: number, info: any } | null>(null);
 
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -129,40 +133,108 @@ export default function MapContainer() {
     return res;
   }, [clinics, searchQuery, countryFilter, stateFilter, cityFilter, animalFocusFilter, stipendOnly, surgeryOnly, internsOnly]);
 
-  const addLayers = useCallback((m: maplibregl.Map, data: any[]) => {
-    if (m.getSource('clinics')) return;
-    m.addSource('clinics', { type: 'geojson', data: { type: 'FeatureCollection', features: data.map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.longitude, c.latitude] }, properties: { fullData: JSON.stringify(c) } })) } });
-    m.addLayer({ id: 'p', type: 'circle', source: 'clinics', paint: { 'circle-color': '#64d2b1', 'circle-radius': 10, 'circle-stroke-width': 2, 'circle-stroke-color': isDarkMode ? '#ffffff' : '#1a1a1a' } });
-  }, [isDarkMode]);
-
+  // --- FIXED MAP INITIALIZATION ---
   useEffect(() => {
     if (!mounted || !mapContainer.current) return;
-    if (map.current) {
-      map.current.setStyle(isDarkMode ? 'https://tiles.openfreemap.org/styles/dark' : 'https://tiles.openfreemap.org/styles/bright');
-      map.current.once('styledata', () => { addLayers(map.current!, filteredClinicsRef.current); });
-      return;
-    }
-    const m = new maplibregl.Map({ container: mapContainer.current, style: isDarkMode ? 'https://tiles.openfreemap.org/styles/dark' : 'https://tiles.openfreemap.org/styles/bright', center: [-98.5795, 39.8283], zoom: 3, attributionControl: false });
-    m.on('load', () => { addLayers(m, filteredClinicsRef.current); setIsMapReady(true); });
-    m.on('click', 'p', (e: any) => {
-      if (e.features.length > 0) {
-        const coordinates = e.features[0].geometry.coordinates.slice();
-        m.flyTo({ center: coordinates, zoom: 14, speed: 1.5, curve: 1, essential: true });
-        setSelectedClinic(JSON.parse(e.features[0].properties.fullData));
-        setShowMobileMap(false); 
-      }
+    if (map.current) return; // PREVENT DOUBLE INIT
+
+    const m = new maplibregl.Map({ 
+      container: mapContainer.current, 
+      style: isDarkMode ? 'https://tiles.openfreemap.org/styles/dark' : 'https://tiles.openfreemap.org/styles/bright', 
+      center: [-98.5795, 39.8283], 
+      zoom: 3, 
+      attributionControl: false 
     });
+
+    m.on('load', () => {
+      m.addSource('clinics', { 
+        type: 'geojson', 
+        data: { type: 'FeatureCollection', features: [] } // Init empty, data loads later
+      });
+      m.addLayer({ 
+        id: 'p', type: 'circle', source: 'clinics', 
+        paint: { 
+          'circle-color': '#64d2b1', 
+          'circle-radius': 10, 
+          'circle-stroke-width': 2, 
+          'circle-stroke-color': '#ffffff' // Initial default
+        } 
+      });
+      
+      setIsMapReady(true);
+    });
+
+    m.on('click', 'p', (e: any) => {
+        if (e.features.length > 0) {
+          const coordinates = e.features[0].geometry.coordinates.slice();
+          m.flyTo({ center: coordinates, zoom: 14, speed: 1.5, curve: 1, essential: true });
+          setSelectedClinic(JSON.parse(e.features[0].properties.fullData));
+          setShowMobileMap(false); 
+        }
+    });
+    
     m.on('mouseenter', 'p', () => { m.getCanvas().style.cursor = 'pointer'; });
     m.on('mouseleave', 'p', () => { m.getCanvas().style.cursor = ''; });
-    map.current = m;
-  }, [mounted, isDarkMode, addLayers]);
 
+    map.current = m;
+
+    // CRITICAL CLEANUP FUNCTION
+    return () => {
+      m.remove();
+      map.current = null;
+    };
+  }, [mounted]); // Only run once on mount
+
+  // --- THEME UPDATE EFFECT ---
+  useEffect(() => {
+    if (!map.current || !isMapReady) return;
+    const styleUrl = isDarkMode ? 'https://tiles.openfreemap.org/styles/dark' : 'https://tiles.openfreemap.org/styles/bright';
+    map.current.setStyle(styleUrl);
+    
+    // Re-add layers after style change (MapLibre removes layers on setStyle)
+    map.current.once('styledata', () => {
+        if (!map.current?.getSource('clinics')) {
+            map.current?.addSource('clinics', { 
+                type: 'geojson', 
+                data: { 
+                    type: 'FeatureCollection', 
+                    features: filteredClinicsRef.current.map(c => ({ 
+                        type: 'Feature', 
+                        geometry: { type: 'Point', coordinates: [c.longitude, c.latitude] }, 
+                        properties: { fullData: JSON.stringify(c) } 
+                    })) 
+                } 
+            });
+            map.current?.addLayer({ 
+                id: 'p', type: 'circle', source: 'clinics', 
+                paint: { 
+                    'circle-color': '#64d2b1', 
+                    'circle-radius': 10, 
+                    'circle-stroke-width': 2, 
+                    'circle-stroke-color': isDarkMode ? '#ffffff' : '#1a1a1a' 
+                } 
+            });
+        }
+    });
+  }, [isDarkMode, isMapReady]);
+
+  // --- DATA UPDATE EFFECT ---
   useEffect(() => {
     if (!isMapReady || !map.current) return;
     const s = map.current.getSource('clinics') as maplibregl.GeoJSONSource;
-    if (s) { s.setData({ type: 'FeatureCollection', features: filteredClinics.map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.longitude, c.latitude] }, properties: { fullData: JSON.stringify(c) } })) }); }
+    if (s) { 
+        s.setData({ 
+            type: 'FeatureCollection', 
+            features: filteredClinics.map(c => ({ 
+                type: 'Feature', 
+                geometry: { type: 'Point', coordinates: [c.longitude, c.latitude] }, 
+                properties: { fullData: JSON.stringify(c) } 
+            })) 
+        }); 
+    }
   }, [isMapReady, filteredClinics]);
 
+  // --- ACTIONS ---
   const countrySuggestions = useMemo(() => [...new Set(clinics.map(c => c.country).filter(Boolean))].filter(c => c.toLowerCase().includes(countryInput.toLowerCase())), [clinics, countryInput]);
   const stateSuggestions = useMemo(() => { const base = clinics.filter(c => countryFilter === 'All' || c.country === countryFilter); return [...new Set(base.map(c => c.state).filter(Boolean))].filter(s => s.toLowerCase().includes(stateInput.toLowerCase())); }, [clinics, countryFilter, stateInput]);
   const citySuggestions = useMemo(() => { const base = clinics.filter(c => (countryFilter === 'All' || c.country === countryFilter) && (stateFilter === 'All' || c.state === stateFilter)); return [...new Set(base.map(c => c.city).filter(Boolean))].filter(ct => ct.toLowerCase().includes(cityInput.toLowerCase())); }, [clinics, countryFilter, stateFilter, cityInput]);
@@ -210,22 +282,38 @@ export default function MapContainer() {
   const inputStyle = `w-full p-3 rounded-xl text-[16px] md:text-[12px] outline-none border transition-all ${isDarkMode ? 'bg-white/5 border-white/10 focus:border-vet-mint/50' : 'bg-black/5 border-black/10 focus:border-emerald-600/50'}`;
   const btnHover = "cursor-pointer hover:scale-105 active:scale-95 transition-transform";
 
+  const handleTooltip = (e: React.MouseEvent, info: any) => {
+    e.stopPropagation(); e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTooltipState(prev => prev?.info === info ? null : { x: rect.left, y: rect.top, info });
+  };
+
   return (
-    <div className={`relative w-full h-[100dvh] font-sans antialiased overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-charcoal text-white' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`relative w-full h-[100dvh] font-sans antialiased overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-charcoal text-white' : 'bg-slate-50 text-slate-900'}`} onClick={() => setTooltipState(null)}>
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
 
-      {/* MOBILE TOGGLE */}
+      {/* FIXED TOOLTIP OVERLAY */}
+      {tooltipState && (
+        <div 
+            className={`fixed w-48 p-3 rounded-xl border backdrop-blur-md z-[100] shadow-2xl animate-in fade-in zoom-in-95 duration-200 pointer-events-none ${isDarkMode ? 'bg-black/90 border-white/20' : 'bg-white/90 border-black/10'}`}
+            style={{ top: tooltipState.y - 80, left: tooltipState.x - 100 }}
+        >
+            <p className="text-[9px] mb-1 opacity-70">1: {tooltipState.info.low}</p>
+            <p className="text-[9px] font-bold">5: {tooltipState.info.high}</p>
+            <div className={`absolute -bottom-2 right-1/2 translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] ${isDarkMode ? 'border-t-white/20' : 'border-t-black/10'}`} />
+        </div>
+      )}
+
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 md:hidden flex gap-2">
          {showMobileMap && (<button onClick={() => setShowMobileMap(false)} className={`flex items-center gap-2 px-6 py-3 rounded-full font-bold shadow-2xl animate-in fade-in slide-in-from-bottom-10 ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'} ${btnHover}`}><List size={18} /> Show List</button>)}
       </div>
 
-      {/* NEW FOOTER (BOTTOM LEFT OVERLAY) */}
       <div className="absolute bottom-4 left-4 z-20 hidden md:flex flex-col items-start gap-2">
          <div className={`p-4 rounded-3xl backdrop-blur-xl border shadow-2xl flex flex-col gap-1 transition-colors ${isDarkMode ? 'bg-black/60 border-white/10 text-white' : 'bg-white/80 border-black/10 text-black'}`}>
             <div className="flex items-center gap-3">
                 <p className="text-[11px] font-bold tracking-tight">© {new Date().getFullYear()} RateMyExternship</p>
-                <a href="https://www.linkedin.com/in/jyot-patel-5792921b3/" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a>
+                <a href="https://www.linkedin.com/in/jyotpatel28/" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a>
             </div>
             <p className="text-[9px] opacity-60 font-medium">Created by Jyot Patel, DVM Student at WSU</p>
          </div>
@@ -271,7 +359,7 @@ export default function MapContainer() {
               <div className={`h-full flex flex-col transition-transform duration-500 ${selectedClinic ? '-translate-x-full' : 'translate-x-0'}`}>
                 <div className={`p-6 border-b space-y-4 ${isDarkMode ? 'border-white/5' : 'border-black/5'}`}>
                   <div className="flex gap-2">
-                    <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={16} /><input placeholder="Search hospital name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`w-full pl-10 pr-4 py-3 border rounded-xl text-[16px] md:text-[13px] outline-none transition-all ${isDarkMode ? 'bg-white/5 border-white/10 focus:border-vet-mint/30' : 'bg-black/5 border-black/10 focus:border-emerald-600/30'}`} /></div>
+                    <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={16} /><input placeholder="Search Externship Location..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`w-full pl-10 pr-4 py-3 border rounded-xl text-[16px] md:text-[13px] outline-none transition-all ${isDarkMode ? 'bg-white/5 border-white/10 focus:border-vet-mint/30' : 'bg-black/5 border-black/10 focus:border-emerald-600/30'}`} /></div>
                     <button onClick={() => setShowFilters(!showFilters)} className={`p-3 rounded-xl border transition-all ${btnHover} ${showFilters ? (isDarkMode ? 'bg-vet-mint border-vet-mint text-charcoal' : 'bg-emerald-600 border-emerald-600 text-white') : (isDarkMode ? 'bg-white/5 border-white/10 text-white/40' : 'bg-black/5 border-black/10 text-black/40')}`}><SlidersHorizontal size={18} /></button>
                   </div>
                   {showFilters && (
@@ -314,7 +402,7 @@ export default function MapContainer() {
                       
                       {selectedClinic.website && (<a href={selectedClinic.website} target="_blank" rel="noopener noreferrer" className={`w-full py-3 rounded-2xl flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest border transition-all ${btnHover} ${isDarkMode ? 'bg-white/10 border-white/10 hover:bg-white/20' : 'bg-black/5 border-black/5 hover:bg-black/10'}`}><Globe size={14}/> Visit Website</a>)}
 
-                      <div className="grid grid-cols-2 gap-4">{Object.entries(RUBRIC).map(([key, info], idx) => (<div key={key} className={`p-4 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}><div className="flex justify-between items-start mb-1"><p className="text-[10px] uppercase font-bold opacity-30 tracking-widest">{info.label}</p><div className="relative group/tooltip"><Info size={12} className="opacity-20 hover:opacity-100 cursor-help" /><div className={`absolute bottom-full right-0 mb-2 w-40 p-3 rounded-xl border backdrop-blur-md z-50 opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none ${isDarkMode ? 'bg-black/90 border-white/20' : 'bg-white/90 border-black/10'}`}><p className="text-[9px] mb-1 opacity-70">{info.low}</p><p className="text-[9px] font-bold">{info.high}</p></div></div></div><p className={`text-2xl font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{getAvg(selectedClinic.reviews, key)}</p></div>))}</div>
+                      <div className="grid grid-cols-2 gap-4">{Object.entries(RUBRIC).map(([key, info], idx) => (<div key={key} className={`p-4 rounded-3xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}><div className="flex justify-between items-start mb-1"><p className="text-[10px] uppercase font-bold opacity-30 tracking-widest">{info.label}</p><button className="opacity-30 hover:opacity-100 transition-opacity p-1 cursor-help" onMouseEnter={(e) => handleTooltip(e, info)} onClick={(e) => handleTooltip(e, info)}><Info size={12} /></button></div><p className={`text-2xl font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{getAvg(selectedClinic.reviews, key)}</p></div>))}</div>
                       <div className={`p-5 rounded-3xl border space-y-3 ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}><p className="text-[10px] font-bold opacity-30 uppercase flex items-center gap-2"><GraduationCap size={14}/> Open to Student Years</p><div className="flex flex-wrap gap-2">{VET_YEARS.map(yr => { const isOk = selectedClinic.reviews?.some((r: any) => r.open_to_years?.includes(yr)); return (<span key={yr} className={`px-3 py-1 text-[9px] rounded uppercase font-bold border transition-all ${isOk ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/5 text-white/20' : 'bg-black/5 border-black/5 text-black/20')}`}>{yr}</span>) })}</div></div>
                       <div className="space-y-2"><div className={`p-4 rounded-2xl border flex items-center justify-between ${selectedClinic.provides_stipend ? (isDarkMode ? 'border-vet-mint text-vet-mint bg-vet-mint/5' : 'border-emerald-600 text-emerald-600 bg-emerald-600/5') : 'opacity-20 border-gray-500'}`}><span className="text-xs font-bold uppercase">Stipend Provided</span>{selectedClinic.provides_stipend ? <Check size={16}/> : <Home size={16} />}</div><div className={`p-4 rounded-2xl border flex items-center justify-between ${selectedClinic.allows_surgery ? (isDarkMode ? 'border-vet-mint text-vet-mint bg-vet-mint/5' : 'border-emerald-600 text-emerald-600 bg-emerald-600/5') : 'opacity-20 border-gray-500'}`}><span className="text-xs font-bold uppercase">Hands-on Surgery</span>{selectedClinic.allows_surgery ? <Check size={16}/> : <Scissors size={16} />}</div><div className={`p-4 rounded-2xl border flex items-center justify-between ${selectedClinic.reviews?.some((r: any) => r.hosts_intern_residents) ? (isDarkMode ? 'border-vet-mint text-vet-mint bg-vet-mint/5' : 'border-emerald-600 text-emerald-600 bg-emerald-600/5') : 'opacity-20 border-gray-500'}`}><span className="text-xs font-bold uppercase">Hosts Interns/Residents</span>{selectedClinic.reviews?.some((r: any) => r.hosts_intern_residents) ? <Check size={16}/> : <Building size={16} />}</div></div>
                       <div className="mt-4 pt-4 border-t border-dashed border-opacity-20 border-gray-500"><h4 className="text-[10px] font-bold uppercase opacity-50 mb-4">Recent Reviews</h4>{selectedClinic.reviews && selectedClinic.reviews.length > 0 ? (selectedClinic.reviews.map((r: any, i: number) => (<div key={i} className={`p-5 rounded-2xl mb-3 border ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center mb-2"><div className="flex items-center gap-2"><span className={`text-lg font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{r.overall_rating}★</span>{r.duration_weeks && <span className="text-[9px] px-2 py-1 rounded-full bg-white/10 flex items-center gap-1"><Clock size={8}/> {r.duration_weeks} wks</span>}{r.externship_year && <span className="text-[9px] px-2 py-1 rounded-full bg-white/10 flex items-center gap-1"><Calendar size={8}/> {r.externship_year}</span>}</div><span className="text-[9px] opacity-40">{new Date(r.created_at).toLocaleDateString()}</span></div><p className="text-xs opacity-80 leading-relaxed italic">"{r.comment}"</p></div>))) : (<div className="text-center p-8 opacity-40 text-xs italic">No reviews yet. Be the first!</div>)}</div>
@@ -323,9 +411,9 @@ export default function MapContainer() {
                   ) : (
                     <div className="space-y-6 pb-20 animate-in slide-in-from-right duration-300">
                        <div className={`p-5 border rounded-3xl text-center ${isDarkMode ? 'bg-vet-mint/5 border-vet-mint/20' : 'bg-emerald-600/5 border-emerald-600/20'}`}><label className={`text-[11px] font-black uppercase block mb-2 tracking-widest ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>Overall experience</label><input type="range" min="1" max="5" value={ratings.overall_rating} onChange={e => setRatings({...ratings, overall_rating: parseInt(e.target.value)})} className={`w-full cursor-pointer accent-current ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`} /><div className={`text-3xl font-black mt-2 ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{ratings.overall_rating} ★</div></div>
-                       <div className={`p-5 border rounded-3xl ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center mb-2"><label className="text-[11px] font-bold uppercase opacity-60">Duration of Externship</label><span className={`text-[12px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{ratings.duration_weeks} Weeks</span></div><input type="range" min="1" max="4" step="1" value={ratings.duration_weeks} onChange={e => setRatings({...ratings, duration_weeks: parseInt(e.target.value)})} className={`w-full h-1.5 appearance-none rounded-lg cursor-pointer ${isDarkMode ? 'bg-white/10 accent-white' : 'bg-black/10 accent-black'}`} /><div className="flex justify-between text-[9px] opacity-30 mt-2"><span>1 Week</span><span>4 Weeks+</span></div></div>
+                       <div className={`p-5 border rounded-3xl ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center mb-2"><label className="text-[11px] font-bold uppercase opacity-60">Duration of Externship</label><span className={`text-[12px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{ratings.duration_weeks} Weeks</span></div><input type="range" min="1" max="12" step="1" value={ratings.duration_weeks} onChange={e => setRatings({...ratings, duration_weeks: parseInt(e.target.value)})} className={`w-full h-1.5 appearance-none rounded-lg cursor-pointer ${isDarkMode ? 'bg-white/10 accent-white' : 'bg-black/10 accent-black'}`} /><div className="flex justify-between text-[9px] opacity-30 mt-2"><span>1 Week</span><span>12 Weeks+</span></div></div>
                        <div><label className="text-[10px] font-bold opacity-30 uppercase block mb-2">Year of Externship</label><select value={ratings.externship_year} onChange={(e) => setRatings({...ratings, externship_year: parseInt(e.target.value)})} className={`w-full p-3 rounded-xl text-[12px] outline-none border cursor-pointer ${isDarkMode ? 'bg-white/10 border-white/10 text-white' : 'bg-black/5 border-black/10 text-black'}`}>{EXTERNSHIP_YEARS.map(y => <option key={y} value={y} className="text-black">{y}</option>)}</select></div>
-                       {Object.entries(RUBRIC).map(([key, info]) => (<div key={key} className={`p-5 rounded-3xl border space-y-4 relative ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center"><div className="flex items-center gap-2"><label className="text-[11px] font-bold uppercase opacity-60">{info.label}</label><span className={`text-[11px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{(ratings as any)[key]} / 5</span></div><div className="relative group/tooltip"><Info size={14} className="opacity-30 hover:opacity-100 transition-all cursor-help" /><div className={`absolute w-48 p-3 border rounded-xl text-[10px] opacity-0 group-hover/tooltip:opacity-100 transition-all z-50 shadow-2xl right-0 bottom-full mb-2 ${isDarkMode ? 'bg-black border-white/10' : 'bg-white border-black/10'}`}><p className="opacity-60 mb-1">{info.low}</p><p className={`font-bold ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{info.high}</p></div></div></div><input type="range" min="1" max="5" value={(ratings as any)[key]} onChange={e => setRatings({...ratings, [key]: parseInt(e.target.value)})} className={`w-full h-1.5 appearance-none rounded-lg cursor-pointer ${isDarkMode ? 'bg-white/10 accent-white' : 'bg-black/10 accent-black'}`} /></div>))}
+                       {Object.entries(RUBRIC).map(([key, info]) => (<div key={key} className={`p-5 rounded-3xl border space-y-4 relative ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center"><div className="flex items-center gap-2"><label className="text-[11px] font-bold uppercase opacity-60">{info.label}</label><span className={`text-[11px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{(ratings as any)[key]} / 5</span></div><button className="opacity-30 hover:opacity-100 transition-opacity p-1 cursor-help" onMouseEnter={(e) => handleTooltip(e, info)} onClick={(e) => handleTooltip(e, info)}><Info size={14} /></button></div><input type="range" min="1" max="5" value={(ratings as any)[key]} onChange={e => setRatings({...ratings, [key]: parseInt(e.target.value)})} className={`w-full h-1.5 appearance-none rounded-lg cursor-pointer ${isDarkMode ? 'bg-white/10 accent-white' : 'bg-black/10 accent-black'}`} /></div>))}
                        <div className="space-y-2"><label className="text-[10px] font-bold opacity-30 uppercase block">Student Years Accepted</label><div className="flex flex-wrap gap-2">{VET_YEARS.map(yr => {const isSelected = ratings.open_to_years.includes(yr); return (<button key={yr} onClick={() => setRatings(prev => ({...prev, open_to_years: isSelected ? prev.open_to_years.filter(y => y !== yr) : [...prev.open_to_years, yr]}))} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 ${isSelected ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>{yr}</button>);})}</div></div>
                        <div className="grid gap-3"><button type="button" onClick={() => setRatings({...ratings, allows_surgery: !ratings.allows_surgery})} className={`p-4 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:opacity-80 active:scale-95 ${ratings.allows_surgery ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 opacity-40' : 'bg-black/5 border-black/10 opacity-40')}`}>Surgery allowed? {ratings.allows_surgery ? <Check size={16}/> : <Scissors size={16}/>}</button><button type="button" onClick={() => setRatings({...ratings, hosts_intern_residents: !ratings.hosts_intern_residents})} className={`p-4 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:opacity-80 active:scale-95 ${ratings.hosts_intern_residents ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 opacity-40' : 'bg-black/5 border-black/10 opacity-40')}`}>Hosts Interns? {ratings.hosts_intern_residents ? <Check size={16}/> : <Building size={16}/>}</button><button type="button" onClick={() => setRatings({...ratings, provides_stipend: !ratings.provides_stipend})} className={`p-4 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:opacity-80 active:scale-95 ${ratings.provides_stipend ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 opacity-40' : 'bg-black/5 border-black/10 opacity-40')}`}>Stipend provided? {ratings.provides_stipend ? <Check size={16}/> : <Home size={16}/>}</button></div>
                        <textarea placeholder="Tell us more about your experience..." value={comment} onChange={e => setComment(e.target.value)} className={`w-full p-4 rounded-2xl text-[13px] h-32 outline-none border transition-all ${isDarkMode ? 'bg-white/5 border-white/10 focus:border-vet-mint/30' : 'bg-black/5 border-black/10 focus:border-emerald-600/30'}`} />
