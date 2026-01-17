@@ -22,7 +22,6 @@ const OWNERSHIP_TYPES = ['Private Practice', 'Corporate', 'University', 'Governm
 const SPECIALTIES = ['General Practice', 'Emergency/Urgent Care', 'Specialty Referral', 'Shelter Medicine', 'Laboratory/Research', 'Exotics', 'Large Animal'];
 const ANIMAL_TYPES = ['Small Animal', 'Equine', 'Mixed', 'Farm', 'Exotics'];
 
-// Basic Profanity List (Expand as needed or use a library like 'bad-words')
 const PROFANITY_LIST = ['badword1', 'badword2', 'shit', 'fuck', 'fucking','fucked', 'bitch', 'crap', 'piss', 'dick', 'cock', 'pussy', 'ass', 'asshole', 'fag', 'bastard', 'slut', 'douche'];
 
 const RUBRIC: Record<string, { label: string, low: string, high: string }> = {
@@ -44,12 +43,11 @@ const ensureProtocol = (url: string) => {
     return cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`;
 };
 
-// NEW: Profanity Check Utility
 const containsProfanity = (text: string) => {
     if (!text) return false;
     const lowerText = text.toLowerCase();
     return PROFANITY_LIST.some(word => {
-        const regex = new RegExp(`\\b${word}\\b`, 'i'); // Matches whole words only
+        const regex = new RegExp(`\\b${word}\\b`, 'i'); 
         return regex.test(lowerText);
     });
 };
@@ -79,6 +77,8 @@ export default function MapContainer() {
   const [isMapReady, setIsMapReady] = useState(false);
   const [isAddingClinic, setIsAddingClinic] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  // NOTE: showMobileMap = TRUE means the LIST is visible (default state). 
+  // Clicking "Show Map" sets this to FALSE.
   const [showMobileMap, setShowMobileMap] = useState(true); 
   const [showWelcome, setShowWelcome] = useState(false);
   
@@ -213,12 +213,18 @@ export default function MapContainer() {
     if (!map.current) return;
     const isMobile = window.innerWidth < 768;
     const bottomPadding = isMobile ? window.innerHeight * 0.55 : 0;
+    
     map.current.flyTo({ 
-        center: [clinic.longitude, clinic.latitude], zoom: 14, speed: 1.5, curve: 1, essential: true,
+        center: [clinic.longitude, clinic.latitude], 
+        zoom: 14, 
+        speed: 0.9,  
+        curve: 1.2,  
+        essential: true,
         padding: { bottom: bottomPadding, top: 0, left: 0, right: 0 } 
     });
+    
     setSelectedClinic(clinic);
-    setShowMobileMap(false); 
+    setShowMobileMap(false); // Hide list (if visible) to show map + drawer
   };
 
   useEffect(() => {
@@ -437,14 +443,26 @@ export default function MapContainer() {
     if (tooltipState) { setTooltipState({ ...tooltipState, visible: false }); setTimeout(() => setTooltipState(null), 200); }
   };
 
+  // --- UPDATED: SMOOTH MOBILE DRAWER TRANSITION ---
   const getSidebarClass = () => {
-      const base = `absolute z-20 flex flex-col transition-transform duration-300 ease-in-out`;
-      const mobileClasses = selectedClinic 
-          ? 'inset-x-0 bottom-0 h-[55dvh] rounded-t-3xl md:inset-auto md:right-6 md:top-6 md:bottom-6 md:w-125 md:h-auto md:rounded-4xl' 
-          : showMobileMap 
-              ? 'inset-0 md:inset-auto md:right-6 md:top-6 md:bottom-6 md:w-125' 
-              : 'translate-y-full md:translate-y-0 md:inset-auto md:right-6 md:top-6 md:bottom-6 md:w-125'; 
-      return `${base} ${mobileClasses}`;
+      // Desktop positioning (fixed)
+      const desktop = "md:inset-auto md:right-6 md:top-6 md:bottom-6 md:w-125 md:h-auto md:rounded-4xl md:translate-y-0";
+
+      // Mobile dynamic positioning
+      let mobile = "";
+
+      if (selectedClinic) {
+          // OPEN DRAWER: Aligned to bottom, taking 55% height
+          mobile = "inset-x-0 bottom-0 top-auto h-[55dvh] rounded-t-3xl translate-y-0";
+      } else {
+          // LIST VIEW: Always take full screen space (inset-0) so the geometry exists.
+          // toggle visibility using simple translate.
+          // showMobileMap=true means LIST IS SHOWN (see button logic).
+          mobile = `inset-0 h-full ${showMobileMap ? 'translate-y-0' : 'translate-y-full'}`;
+      }
+
+      // Add a nice cubic-bezier ease for a "heavy" professional feel
+      return `absolute z-20 flex flex-col transition-transform duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] ${desktop} ${mobile}`;
   };
 
   return (
@@ -464,7 +482,7 @@ export default function MapContainer() {
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
       <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
 
-      {/* ... (Welcome and Feedback modals remain same) ... */}
+      {/* ... (Welcome/Feedback modals omitted for brevity, same as before) ... */}
       
       {showWelcome && (
         <div className="fixed inset-0 z-200 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
@@ -502,6 +520,7 @@ export default function MapContainer() {
       )}
 
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 md:hidden flex gap-2">
+         {/* UPDATED: Dynamic Button for Mobile */}
          {!selectedClinic && (
             <button 
                 onClick={() => setShowMobileMap(!showMobileMap)} 
@@ -560,11 +579,32 @@ export default function MapContainer() {
                             <div><label className={labelStyle}>Website (Optional)</label><input placeholder="https://..." value={newClinic.website} onChange={e => setNewClinic({...newClinic, website: e.target.value})} className={inputStyle} /></div>
                             <div className="grid grid-cols-2 gap-3"><div><label className={labelStyle}>Address</label><input value={newClinic.address} onChange={e => setNewClinic({...newClinic, address: e.target.value})} className={inputStyle} /></div><div><label className={labelStyle}>City</label><input value={newClinic.city} onChange={e => setNewClinic({...newClinic, city: e.target.value})} className={inputStyle} /></div></div>
                             <div className="grid grid-cols-2 gap-3"><div><label className={labelStyle}>State</label><input value={newClinic.state} onChange={e => setNewClinic({...newClinic, state: e.target.value})} className={inputStyle} /></div><div><label className={labelStyle}>Zip/Postal</label><input value={newClinic.postal_code} onChange={e => setNewClinic({...newClinic, postal_code: e.target.value})} className={inputStyle} /></div></div>
+                            
+                            {/* UPDATED PILL STYLE BUTTONS */}
                             <div><label className={labelStyle}>Ownership Type</label><div className="flex flex-wrap gap-2">{OWNERSHIP_TYPES.map(t => (<button key={t} onClick={() => setNewClinic({...newClinic, ownership_type: t})} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 ${newClinic.ownership_type === t ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>{t}</button>))}</div></div>
                             <div><label className={labelStyle}>Specialty</label><div className="flex flex-wrap gap-2">{SPECIALTIES.map(s => {const isActive = newClinic.specialties.includes(s);return (<button key={s} onClick={() => setNewClinic(prev => ({...prev, specialties: isActive ? prev.specialties.filter(x => x !== s) : [...prev.specialties, s]}))} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 ${isActive ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>{s}</button>)})}</div></div>
                             <div><label className={labelStyle}>Primary Focus</label><div className="flex flex-wrap gap-2">{ANIMAL_TYPES.map(t => {const isActive = newClinic.animal_types.includes(t);return (<button key={t} onClick={() => setNewClinic(prev => ({...prev, animal_types: isActive ? prev.animal_types.filter(x => x !== t) : [...prev.animal_types, t]}))} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 ${isActive ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>{t}</button>);})}</div></div>
+                            
                             <div><label className={labelStyle}>Student Years Accepted</label><div className="flex flex-wrap gap-2">{VET_YEARS.map(yr => {const isSelected = newClinic.open_to_years.includes(yr);return (<button key={yr} onClick={() => setNewClinic(prev => ({...prev, open_to_years: isSelected ? prev.open_to_years.filter(y => y !== yr) : [...prev.open_to_years, yr]}))} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 ${isSelected ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>{yr}</button>);})}</div></div>
-                            <div className="grid gap-3"><button type="button" onClick={() => setNewClinic({...newClinic, provides_housing: !newClinic.provides_housing})} className={`p-4 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:opacity-80 active:scale-95 ${newClinic.provides_housing ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 opacity-40' : 'bg-black/5 border-black/10 opacity-40')}`}>Housing Provided? {newClinic.provides_housing ? <Check size={16}/> : <Bed size={16}/>}</button><button type="button" onClick={() => setNewClinic({...newClinic, provides_stipend: !newClinic.provides_stipend})} className={`p-4 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:opacity-80 active:scale-95 ${newClinic.provides_stipend ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 opacity-40' : 'bg-black/5 border-black/10 opacity-40')}`}>Stipend Provided? {newClinic.provides_stipend ? <Check size={16}/> : <DollarSign size={16}/>}</button><button type="button" onClick={() => setNewClinic({...newClinic, allows_surgery: !newClinic.allows_surgery})} className={`p-4 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:opacity-80 active:scale-95 ${newClinic.allows_surgery ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 opacity-40' : 'bg-black/5 border-black/10 opacity-40')}`}>Hands-on Surgery? {newClinic.allows_surgery ? <Check size={16}/> : <Scissors size={16}/>}</button><button type="button" onClick={() => setNewClinic({...newClinic, hosts_intern_residents: !newClinic.hosts_intern_residents})} className={`p-4 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:opacity-80 active:scale-95 ${newClinic.hosts_intern_residents ? (isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 opacity-40' : 'bg-black/5 border-black/10 opacity-40')}`}>Hosts Interns/Residents? {newClinic.hosts_intern_residents ? <Check size={16}/> : <Building size={16}/>}</button></div>
+
+                            <div className="grid gap-2">
+                                <label className={labelStyle}>Additional Details</label>
+                                <div className="flex flex-wrap gap-2">
+                                    <button type="button" onClick={() => setNewClinic({...newClinic, provides_housing: !newClinic.provides_housing})} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 flex items-center gap-2 ${newClinic.provides_housing ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>
+                                        {newClinic.provides_housing ? <Check size={12}/> : <Bed size={12}/>} Housing
+                                    </button>
+                                    <button type="button" onClick={() => setNewClinic({...newClinic, provides_stipend: !newClinic.provides_stipend})} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 flex items-center gap-2 ${newClinic.provides_stipend ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>
+                                        {newClinic.provides_stipend ? <Check size={12}/> : <DollarSign size={12}/>} Stipend
+                                    </button>
+                                    <button type="button" onClick={() => setNewClinic({...newClinic, allows_surgery: !newClinic.allows_surgery})} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 flex items-center gap-2 ${newClinic.allows_surgery ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>
+                                        {newClinic.allows_surgery ? <Check size={12}/> : <Scissors size={12}/>} Surgery
+                                    </button>
+                                    <button type="button" onClick={() => setNewClinic({...newClinic, hosts_intern_residents: !newClinic.hosts_intern_residents})} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all cursor-pointer hover:opacity-80 active:scale-95 flex items-center gap-2 ${newClinic.hosts_intern_residents ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-transparent border-white/20 text-white/50' : 'bg-transparent border-black/20 text-black/50')}`}>
+                                        {newClinic.hosts_intern_residents ? <Check size={12}/> : <Building size={12}/>} Interns
+                                    </button>
+                                </div>
+                            </div>
+
                             <button onClick={submitClinic} disabled={isSubmitting} className={`w-full py-4 rounded-2xl font-black uppercase text-[11px] shadow-lg mt-4 flex justify-center items-center gap-2 ${btnHover} ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'} ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}>{isSubmitting ? <Loader2 className="animate-spin" size={14} /> : 'Confirm & Submit'}</button>
                         </div>
                     )}
