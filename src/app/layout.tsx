@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 // 1. Import the component
@@ -6,16 +6,27 @@ import { GoogleAnalytics } from '@next/third-parties/google'
 
 const inter = Inter({ subsets: ["latin"] });
 
+// --- 1. NEW VIEWPORT CONFIGURATION (Fixes Notch & Zoom) ---
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false, // Prevents input zoom
+  viewportFit: "cover", // Extends content behind the notch
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+  ],
+};
+
 // --- SEO CONFIGURATION ---
 export const metadata: Metadata = {
-  // The 'template' allows sub-pages to have titles like "Banfield Reviews | RateMyExternship" automatically
   title: {
     default: "RateMyExternship | Veterinary Externship Reviews & Salaries",
     template: "%s | RateMyExternship",
   },
   description: "The largest database of veterinary externship reviews, housing stipends, and mentorship ratings. Written by DVM students, for DVM students.",
   
-  // These keywords help Google match your site to student searches
   keywords: [
     "veterinary externship", 
     "vet student reviews", 
@@ -25,17 +36,15 @@ export const metadata: Metadata = {
     "veterinary salary transparency"
   ],
 
-  // This controls how the link looks when shared on Social Media (Facebook, Discord, LinkedIn)
   openGraph: {
     title: "RateMyExternship",
     description: "Find your perfect veterinary externship. Read anonymous reviews on mentorship, housing, and culture from real DVM students.",
-    url: "https://ratemyexternship.com", // ⚠️ Update this when you buy your domain
+    url: "https://ratemyexternship.com",
     siteName: "RateMyExternship",
     locale: "en_US",
     type: "website",
   },
 
-  // Twitter/X specific card data
   twitter: {
     card: "summary_large_image",
     title: "RateMyExternship",
@@ -49,11 +58,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    // 2. Added h-full, w-full, and overscroll-none to lock the body
+    <html lang="en" className="h-full w-full">
+      <body className={`${inter.className} h-full w-full overscroll-none bg-slate-50 dark:bg-charcoal`}>
         {children}
       </body>
-      {/* 2. Add the component at the bottom, passing your Measurement ID */}
       <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID || ""} />
     </html>
   );
