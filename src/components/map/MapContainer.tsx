@@ -8,7 +8,8 @@ import { sendGAEvent } from '@next/third-parties/google';
 import { 
   Search, ChevronLeft, Plus, LogOut, X, Check, SlidersHorizontal, Scissors, 
   Home, Building, Info, GraduationCap, RefreshCcw, Sun, Moon, AlertTriangle, 
-  Loader2, Clock, Map as MapIcon, List, Globe, Calendar, ShieldAlert, Linkedin, Stethoscope, HeartHandshake, ExternalLink, MessageSquare, Send, Bed, DollarSign, HelpCircle
+  Loader2, Clock, Map as MapIcon, List, Globe, Calendar, ShieldAlert, Linkedin, Stethoscope, HeartHandshake, ExternalLink, MessageSquare, Send, Bed, DollarSign, HelpCircle,
+  CheckCircle, AlertCircle
 } from 'lucide-react';
 import AuthModal from '../auth/AuthModal';
 
@@ -25,10 +26,10 @@ const ANIMAL_TYPES = ['Small Animal', 'Equine', 'Mixed', 'Farm', 'Exotics'];
 const PROFANITY_LIST = ['badword1', 'badword2', 'shit', 'fuck', 'fucking','fucked', 'bitch', 'crap', 'piss', 'dick', 'cock', 'pussy', 'ass', 'asshole', 'fag', 'bastard', 'slut', 'douche'];
 
 const RUBRIC: Record<string, { label: string, low: string, high: string }> = {
-  mentorship: { label: "Mentorship", low: "1: Minimal guidance", high: "5: Active teaching" },
-  hands_on: { label: "Hands-on", low: "1: Shadowing only", high: "5: Primary roles" },
-  culture: { label: "Culture", low: "1: Toxic environment", high: "5: Student-focused" },
-  volume: { label: "Caseload", low: "1: Slow/repetitive", high: "5: High volume" }
+  mentorship: { label: "Mentorship", low: "Minimal guidance", high: "Active teaching" },
+  hands_on: { label: "Hands-on", low: "Shadowing only", high: "Primary roles" },
+  culture: { label: "Culture", low: "Toxic environment", high: "Student-focused" },
+  volume: { label: "Caseload", low: "Slow/repetitive", high: "High volume" }
 };
 
 const getAvg = (reviews: any[], field: string = 'overall_rating') => {
@@ -66,12 +67,47 @@ const RangeSlider = ({ value, max, onChange, isDarkMode }: { value: number, max:
   );
 };
 
+// --- NEW COMPONENT: SKELETON LOADER ---
+const SkeletonCard = ({ isDarkMode }: { isDarkMode: boolean }) => (
+  <div className={`w-full p-5 rounded-3xl border flex justify-between items-start animate-pulse ${isDarkMode ? 'border-white/5 bg-white/5' : 'border-black/5 bg-black/5'}`}>
+    <div className="space-y-2 w-[70%]">
+      <div className={`h-4 w-3/4 rounded-full ${isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}></div>
+      <div className={`h-3 w-1/2 rounded-full ${isDarkMode ? 'bg-white/5' : 'bg-black/5'}`}></div>
+      <div className="flex gap-1 mt-2">
+        <div className={`h-4 w-12 rounded-md ${isDarkMode ? 'bg-white/5' : 'bg-black/5'}`}></div>
+        <div className={`h-4 w-16 rounded-md ${isDarkMode ? 'bg-white/5' : 'bg-black/5'}`}></div>
+      </div>
+    </div>
+    <div className={`h-6 w-12 rounded-lg ${isDarkMode ? 'bg-white/10' : 'bg-black/10'}`}></div>
+  </div>
+);
+
+// --- NEW COMPONENT: TOAST NOTIFICATION ---
+const Toast = ({ message, type, onClose, isDarkMode }: { message: string, type: 'success' | 'error', onClose: () => void, isDarkMode: boolean }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const bgColor = type === 'success' 
+    ? (isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white')
+    : (isDarkMode ? 'bg-red-500 text-white' : 'bg-red-600 text-white');
+
+  return (
+    <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[300] flex items-center gap-3 px-6 py-3 rounded-full shadow-2xl animate-in slide-in-from-top-4 fade-in duration-300 ${bgColor}`}>
+      {type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+      <span className="text-xs font-bold uppercase tracking-wide">{message}</span>
+    </div>
+  );
+};
+
 export default function MapContainer() {
   const [mounted, setMounted] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [showLightWarning, setShowLightWarning] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [clinics, setClinics] = useState<any[]>([]);
+  const [loadingClinics, setLoadingClinics] = useState(true); // NEW: Loading state
   const [selectedClinic, setSelectedClinic] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -81,6 +117,9 @@ export default function MapContainer() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   
+  // TOAST STATE
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [feedbackCategory, setFeedbackCategory] = useState('General');
@@ -137,6 +176,10 @@ export default function MapContainer() {
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const detailsContainerRef = useRef<HTMLDivElement>(null);
 
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+  };
+
   useEffect(() => { 
     setMounted(true); 
     sendGAEvent('event', 'theme_session_start', { theme: isDarkMode ? 'dark' : 'light' });
@@ -157,6 +200,7 @@ export default function MapContainer() {
 
   const loadData = useCallback(async () => {
     if (clinics.length > 0) return;
+    setLoadingClinics(true);
     const { data } = await supabase.from('clinics').select('*, reviews(*)').eq('is_approved', true);
     if (data) {
         const sorted = data.map(c => ({
@@ -165,6 +209,7 @@ export default function MapContainer() {
         }));
         setClinics(sorted);
     }
+    setLoadingClinics(false);
   }, [clinics.length]);
 
   useEffect(() => {
@@ -311,7 +356,7 @@ export default function MapContainer() {
 
   const submitClinic = async () => {
     if (!userId) { setIsAuthOpen(true); return; }
-    if (!newClinic.name || !newClinic.address || !newClinic.city || !newClinic.country) { alert("Please fill in all required location details (Name, Address, City, Country)."); return; }
+    if (!newClinic.name || !newClinic.address || !newClinic.city || !newClinic.country) { showToast("Please fill in all required location details.", 'error'); return; }
     
     setIsSubmitting(true);
 
@@ -339,13 +384,13 @@ export default function MapContainer() {
 
     if (!finalLat || !finalLng) {
         setIsSubmitting(false);
-        alert("We couldn't locate this address automatically. Please ensure the Address, City, and Country are correct.");
+        showToast("Address not found. Please check details.", 'error');
         return;
     }
 
     if (containsProfanity(newClinic.name)) { 
         setIsSubmitting(false);
-        alert("Please keep the name professional."); 
+        showToast("Please keep the name professional.", 'error'); 
         return; 
     }
 
@@ -356,34 +401,42 @@ export default function MapContainer() {
         specialties: newClinic.specialties, animal_types: newClinic.animal_types, open_to_years: newClinic.open_to_years,
         submitted_by: userId, is_approved: false, provides_housing: newClinic.provides_housing, provides_stipend: newClinic.provides_stipend, allows_surgery: newClinic.allows_surgery, hosts_intern_residents: newClinic.hosts_intern_residents
       });
-      if (error) { console.error(error); alert(`Error: ${error.message}`); } 
+      if (error) { console.error(error); showToast(`Error: ${error.message}`, 'error'); } 
       else { 
           setIsAddingClinic(false); setIsManualMode(false); 
           setNewClinic({ name: '', address: '', city: '', state: '', postal_code: '', country: '', ownership_type: 'Private Practice', website: '', specialties: [], animal_types: [], open_to_years: [], latitude: 0, longitude: 0, provides_housing: false, provides_stipend: false, allows_surgery: false, hosts_intern_residents: false }); 
-          setAddressQuery(''); alert("Clinic submitted for verification!"); 
+          setAddressQuery(''); 
+          showToast("Clinic submitted for verification!", 'success');
       }
-    } catch (err) { alert("An unexpected error occurred."); } finally { setIsSubmitting(false); }
+    } catch (err) { showToast("An unexpected error occurred.", 'error'); } finally { setIsSubmitting(false); }
   };
 
   const submitReview = async () => {
     if (!userId) return setIsAuthOpen(true);
-    if (!ratings.service_externed) { alert("Please specify which service you externed with (e.g. General, Surgery, etc)."); return; }
-    if (!comment || comment.length < 10) { alert("Please provide a short comment describing your experience (min 10 chars)."); return; }
-    if (containsProfanity(comment) || containsProfanity(ratings.service_externed)) { alert("Please keep the review professional. No profanity allowed."); return; }
+    if (!ratings.service_externed) { showToast("Please specify the service you externed with.", 'error'); return; }
+    if (!comment || comment.length < 10) { showToast("Comment must be at least 10 characters.", 'error'); return; }
+    if (containsProfanity(comment) || containsProfanity(ratings.service_externed)) { showToast("Please keep reviews professional.", 'error'); return; }
 
     const { error } = await supabase.from('reviews').insert({ 
       clinic_id: selectedClinic.id, user_id: userId, ...ratings, externship_year: parseInt(ratings.externship_year) || new Date().getFullYear(), comment, is_approved: false 
     });
-    if (!error) { setIsReviewing(false); setComment(''); alert("Review submitted for moderation."); loadData(); } else { alert("Error submitting review. " + error.message); }
+    if (!error) { 
+        setIsReviewing(false); setComment(''); 
+        showToast("Review submitted for moderation.", 'success'); 
+        loadData(); 
+    } else { showToast("Error submitting review.", 'error'); }
   };
 
   const submitFeedback = async () => {
     if (!feedbackMessage.trim()) return;
-    if (containsProfanity(feedbackMessage)) { alert("Please keep it professional."); return; }
+    if (containsProfanity(feedbackMessage)) { showToast("Please keep it professional.", 'error'); return; }
     setIsSendingFeedback(true);
     const { error } = await supabase.from('site_feedback').insert({ message: feedbackMessage, category: feedbackCategory, user_id: userId || null });
-    if (error) { alert("Failed to send feedback. Please try again."); } 
-    else { setFeedbackMessage(''); setIsFeedbackOpen(false); alert("Feedback sent! Thank you for helping improve the site."); }
+    if (error) { showToast("Failed to send feedback.", 'error'); } 
+    else { 
+        setFeedbackMessage(''); setIsFeedbackOpen(false); 
+        showToast("Feedback sent! Thank you.", 'success'); 
+    }
     setIsSendingFeedback(false);
   };
 
@@ -411,7 +464,7 @@ export default function MapContainer() {
 
   const hideTooltip = () => { if (tooltipState) { setTooltipState({ ...tooltipState, visible: false }); setTimeout(() => setTooltipState(null), 200); } };
 
-  // --- DRAWER LOGIC (FIXED: 120dvh to hide completely) ---
+  // --- DRAWER LOGIC ---
   const getSidebarClass = () => {
       const base = `absolute z-20 flex flex-col transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] pb-[env(safe-area-inset-bottom)]`;
       const desktop = "md:inset-auto md:right-6 md:top-6 md:bottom-6 md:w-125 md:h-auto md:rounded-4xl md:translate-y-0";
@@ -446,41 +499,23 @@ export default function MapContainer() {
         .custom-map-popup .maplibregl-popup-tip { border-top-color: #ffffff !important; }
         .scroll-container { -webkit-overflow-scrolling: touch; }
       `}</style>
+      
+      {/* TOAST COMPONENT INJECTED HERE */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} isDarkMode={isDarkMode} />}
+
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
-      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
+      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} isDarkMode={isDarkMode} />
       
       {showWelcome && (<div className="fixed inset-0 z-200 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300"><div className={`relative w-full max-w-lg p-8 rounded-4xl border shadow-2xl text-center ${isDarkMode ? 'bg-[#0f0f0f] border-white/10' : 'bg-white border-black/10'}`}><div className={`w-20 h-20 mx-auto mb-6 flex items-center justify-center rounded-3xl ${isDarkMode ? 'bg-vet-mint/10 text-vet-mint' : 'bg-emerald-600/10 text-emerald-600'}`}><HeartHandshake size={40} /></div><h2 className={`text-2xl font-black uppercase italic mb-3 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Welcome to RateMyExternship!</h2><p className={`text-sm leading-relaxed mb-8 ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>A community-driven platform for veterinary students to discover, review, and rate externship locations worldwide.</p><button onClick={closeWelcome} className={`w-full py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all hover:scale-[1.02] active:scale-[0.98] ${isDarkMode ? 'bg-vet-mint text-charcoal shadow-vet-mint/20 shadow-lg' : 'bg-emerald-600 text-white shadow-emerald-600/20 shadow-lg'}`}>Get Started</button></div></div>)}
       
-      {/* --- ABOUT MODAL --- */}
-      {isAboutOpen && (
-        <div className="fixed inset-0 z-200 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
-            <div className={`relative w-full max-w-lg p-8 rounded-4xl border shadow-2xl ${isDarkMode ? 'bg-[#0f0f0f] border-white/10 text-white' : 'bg-white border-black/10 text-slate-900'}`}>
-                <button onClick={() => setIsAboutOpen(false)} className={`absolute top-4 right-4 p-2 rounded-full hover:bg-white/10 ${isDarkMode ? 'text-white' : 'text-black'}`}><X size={20} /></button>
-                
-                <h2 className={`text-xl font-black uppercase italic mb-4 ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>Why I Built This</h2>
-                <p className="text-sm leading-relaxed mb-6 opacity-80">
-                    As a veterinary student, I realized how difficult it was to find transparent information about externship locations. We rely on word-of-mouth, which is often limited or outdated.
+      {isAboutOpen && (<div className="fixed inset-0 z-200 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300"><div className={`relative w-full max-w-lg p-8 rounded-4xl border shadow-2xl ${isDarkMode ? 'bg-[#0f0f0f] border-white/10 text-white' : 'bg-white border-black/10 text-slate-900'}`}><button onClick={() => setIsAboutOpen(false)} className={`absolute top-4 right-4 p-2 rounded-full hover:bg-white/10 ${isDarkMode ? 'text-white' : 'text-black'}`}><X size={20} /></button><h2 className={`text-xl font-black uppercase italic mb-4 ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>Why I Built This</h2><p className="text-sm leading-relaxed mb-6 opacity-80">As a veterinary student, I realized how difficult it was to find annecdotal information about externship locations. We rely so much on word-of-mouth, that advise from previous students often gets lost to time.
                     <br/><br/>
-                    I built <strong>RateMyExternship</strong> to give us a voice. A place where we can share honest experiences about mentorship, housing, and culture—so we can all make better decisions for our education.
-                </p>
+                    I built <strong>RateMyExternship</strong> to give the community a place to share honest experiences about mentorship, housing, and culture at externship locations, so we can all make better decisions for our education.
+                </p><h3 className="text-sm font-bold uppercase mb-2 opacity-50">How to use</h3><ul className="space-y-3 text-sm opacity-80 mb-8"><li className="flex gap-3"><MapIcon size={16} className="shrink-0 text-vet-mint"/> <span><strong>Browse the Map:</strong> Explore clinics visually or switch to the list view to filter by stipend, housing, and more.</span></li><li className="flex gap-3"><Plus size={16} className="shrink-0 text-vet-mint"/> <span><strong>Add Locations:</strong> If your externship isn't listed, add it! It helps the community grow.</span></li><li className="flex gap-3"><Stethoscope size={16} className="shrink-0 text-vet-mint"/> <span><strong>Leave Reviews:</strong> Anonymous, honest feedback helps future students know what to expect.</span></li></ul><button onClick={() => setIsAboutOpen(false)} className={`w-full py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all hover:scale-[1.02] active:scale-[0.98] ${isDarkMode ? 'bg-vet-mint text-charcoal shadow-vet-mint/20 shadow-lg' : 'bg-emerald-600 text-white shadow-emerald-600/20 shadow-lg'}`}>Got it!</button></div></div>)}
 
-                <h3 className="text-sm font-bold uppercase mb-2 opacity-50">How to use</h3>
-                <ul className="space-y-3 text-sm opacity-80 mb-8">
-                    <li className="flex gap-3"><MapIcon size={16} className="shrink-0 text-vet-mint"/> <span><strong>Browse the Map:</strong> Explore clinics visually or switch to the list view to filter by stipend, housing, and more.</span></li>
-                    <li className="flex gap-3"><Plus size={16} className="shrink-0 text-vet-mint"/> <span><strong>Add Locations:</strong> If your externship isn't listed, add it! It helps the community grow.</span></li>
-                    <li className="flex gap-3"><Stethoscope size={16} className="shrink-0 text-vet-mint"/> <span><strong>Leave Reviews:</strong> Anonymous, honest feedback helps future students know what to expect.</span></li>
-                </ul>
-
-                <button onClick={() => setIsAboutOpen(false)} className={`w-full py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all hover:scale-[1.02] active:scale-[0.98] ${isDarkMode ? 'bg-vet-mint text-charcoal shadow-vet-mint/20 shadow-lg' : 'bg-emerald-600 text-white shadow-emerald-600/20 shadow-lg'}`}>Got it!</button>
-            </div>
-        </div>
-      )}
-
-      {/* --- FEEDBACK MODAL --- */}
       {isFeedbackOpen && (<div className="fixed inset-0 z-200 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"><div className={`relative w-full max-w-md p-6 rounded-3xl border shadow-2xl ${isDarkMode ? 'bg-[#0f0f0f] border-white/10' : 'bg-white border-black/10'}`}><button onClick={() => setIsFeedbackOpen(false)} className={`absolute top-4 right-4 p-2 rounded-full hover:bg-white/10 ${isDarkMode ? 'text-white' : 'text-black'}`}><X size={20} /></button><h3 className={`text-lg font-black uppercase italic mb-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Send Feedback</h3><p className={`text-xs mb-4 ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>Found a bug? Have a suggestion? Let me know!</p><div className="flex gap-2 mb-4">{['General', 'Bug', 'Feature'].map(cat => (<button key={cat} onClick={() => setFeedbackCategory(cat)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${feedbackCategory === cat ? (isDarkMode ? 'bg-vet-mint text-charcoal border-vet-mint' : 'bg-emerald-600 text-white border-emerald-600') : (isDarkMode ? 'bg-white/5 border-white/10 text-white/50' : 'bg-black/5 border-black/10 text-black/50')}`}>{cat}</button>))}</div><textarea value={feedbackMessage} onChange={(e) => setFeedbackMessage(e.target.value)} placeholder="Type your message here..." className={`w-full p-4 rounded-xl text-sm h-32 outline-none border mb-4 resize-none ${isDarkMode ? 'bg-white/5 border-white/10 focus:border-vet-mint/50 text-white' : 'bg-black/5 border-black/10 text-slate-900 focus:border-emerald-600/50'}`} /><button onClick={submitFeedback} disabled={isSendingFeedback || !feedbackMessage.trim()} className={`w-full py-3 rounded-xl font-bold uppercase text-xs flex items-center justify-center gap-2 transition-all ${isDarkMode ? 'bg-vet-mint text-charcoal hover:bg-white' : 'bg-emerald-600 text-white hover:bg-emerald-700'} disabled:opacity-50`}>{isSendingFeedback ? <Loader2 className="animate-spin" size={14}/> : <><Send size={14}/> Send Feedback</>}</button></div></div>)}
       {tooltipState && (<div className={`fixed w-48 p-3 rounded-xl border backdrop-blur-md z-100 shadow-2xl transition-opacity duration-200 pointer-events-none ${tooltipState.visible ? 'opacity-100' : 'opacity-0'} ${isDarkMode ? 'bg-black/90 border-white/20' : 'bg-white/90 border-black/10'}`} style={{ top: tooltipState.y - 80, left: tooltipState.x }}><p className="text-[9px] mb-1 opacity-70">1: {tooltipState.info.low}</p><p className="text-[9px] font-bold">5: {tooltipState.info.high}</p></div>)}
       
-      {/* Floating Button - adjusted for safe area */}
       <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-30 md:hidden flex gap-2 pb-[env(safe-area-inset-bottom)]">{!selectedClinic && (<button onClick={() => setShowMobileMap(!showMobileMap)} className={`flex items-center gap-2 px-6 py-3 rounded-full font-bold shadow-2xl animate-in fade-in slide-in-from-bottom-10 ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'} ${btnHover}`}>{showMobileMap ? <><MapIcon size={18} /> Show Map</> : <><List size={18} /> Show List</>}</button>)}</div>
       
       <div className="absolute bottom-4 left-4 z-20 hidden md:flex flex-col items-start gap-2"><div className={`p-4 rounded-3xl backdrop-blur-xl border shadow-2xl flex flex-col gap-1 transition-colors ${isDarkMode ? 'bg-black/60 border-white/10 text-white' : 'bg-white/80 border-black/10 text-black'}`}><div className="flex items-center gap-3"><p className="text-[11px] font-bold tracking-tight">© {new Date().getFullYear()} RateMyExternship</p><a href="https://www.linkedin.com/in/jyot-patel-5792921b3/" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a><button onClick={() => setIsFeedbackOpen(true)} className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`} title="Send Feedback"><MessageSquare size={14} /></button></div><p className="text-[9px] opacity-60 font-medium">Created by Jyot Patel, DVM Student at WSU</p></div></div>
@@ -490,11 +525,7 @@ export default function MapContainer() {
         <div className={`h-full w-full relative overflow-hidden rounded-t-3xl md:rounded-4xl border-l md:border shadow-2xl backdrop-blur-xl flex flex-col transition-all ${isDarkMode ? 'bg-black/90 md:bg-black/85 border-white/20' : 'bg-white/95 border-black/10'}`}>
           <div className={`border-b flex items-center justify-between gap-2 px-6 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] ${isDarkMode ? 'border-white/10' : 'border-black/5'}`}>
             <div className="flex items-center gap-2 min-w-0"><img src="/logo.png" alt="Logo" className="h-6 md:h-8 w-auto object-contain" /><h2 className={`text-xs md:text-lg font-black italic uppercase tracking-tighter truncate pr-1 ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>RateMyExternship</h2></div>
-            <div className="flex items-center gap-2 shrink-0">
-                {/* NEW INFO BUTTON */}
-                <button onClick={() => setIsAboutOpen(true)} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`} title="About"><HelpCircle size={18} /></button>
-                <button onClick={() => setShowMobileMap(true)} className={`hidden p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`}><MapIcon size={18} /></button><button onClick={toggleTheme} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button><button onClick={() => setIsAddingClinic(true)} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'}`}><Plus size={18} /></button>{userId ? (<button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5' : 'bg-black/5'}`}><LogOut size={18}/></button>) : (<button onClick={() => setIsAuthOpen(true)} className={`px-3 md:px-4 py-2 border rounded-full text-[10px] font-black uppercase ${btnHover} ${isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint hover:bg-vet-mint/20' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600 hover:bg-emerald-600/20'}`}>Login</button>)}
-            </div>
+            <div className="flex items-center gap-2 shrink-0"><button onClick={() => setIsAboutOpen(true)} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`} title="About"><HelpCircle size={18} /></button><button onClick={() => setShowMobileMap(true)} className={`hidden p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`}><MapIcon size={18} /></button><button onClick={toggleTheme} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`}>{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button><button onClick={() => setIsAddingClinic(true)} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'}`}><Plus size={18} /></button>{userId ? (<button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} className={`p-2 rounded-full ${btnHover} ${isDarkMode ? 'bg-white/5' : 'bg-black/5'}`}><LogOut size={18}/></button>) : (<button onClick={() => setIsAuthOpen(true)} className={`px-3 md:px-4 py-2 border rounded-full text-[10px] font-black uppercase ${btnHover} ${isDarkMode ? 'bg-vet-mint/10 border-vet-mint text-vet-mint hover:bg-vet-mint/20' : 'bg-emerald-600/10 border-emerald-600 text-emerald-600 hover:bg-emerald-600/20'}`}>Login</button>)}</div>
           </div>
           <div className="relative flex-1 overflow-hidden">
             <div className={`absolute inset-0 z-30 p-6 overflow-y-auto bg-inherit transition-transform duration-300 ${isAddingClinic ? 'translate-y-0' : 'translate-y-full'}`}>
@@ -531,11 +562,23 @@ export default function MapContainer() {
                 </div>
                 {/* Scroll container with extra bottom padding - UPDATED PADDING */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 scrollbar-hide scroll-container pb-48" style={{ touchAction: "pan-y" }}>
-                  {filteredClinics.map(clinic => (
-                    <button key={clinic.id} onClick={() => { flyToClinic(clinic); }} className={`w-full text-left p-5 rounded-3xl border border-transparent transition-all flex justify-between items-start group cursor-pointer hover:scale-[1.01] active:scale-[0.99] shadow-sm hover:shadow-md ${isDarkMode ? 'hover:bg-white/5 hover:border-white/10' : 'hover:bg-black/5 hover:border-black/10'}`}>
-                        <div className="max-w-[70%]"><h3 className={`font-bold text-[14px] truncate transition-colors ${isDarkMode ? 'group-hover:text-vet-mint text-white' : 'group-hover:text-emerald-600 text-slate-900'}`}>{clinic.name}</h3><p className="text-[10px] font-bold opacity-30 uppercase">{clinic.city}, {clinic.country}</p><div className="flex flex-wrap gap-1 mt-2">{clinic.animal_types?.slice(0, 3).map((t: string) => (<span key={t} className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold tracking-tight opacity-70 ${isDarkMode ? 'bg-white/10 text-white' : 'bg-black/5 text-black'}`}>{t}</span>))}</div></div><div className={`px-2 py-1 rounded-lg text-[11px] font-black tracking-tighter border ${isDarkMode ? 'bg-vet-mint/10 text-vet-mint border-vet-mint/20' : 'bg-emerald-600/10 text-emerald-600 border-emerald-600/20'}`}>★ {getAvg(clinic.reviews)}</div>
-                    </button>
-                  ))}
+                  {loadingClinics ? (
+                    // SHOW 5 SKELETONS WHILE LOADING
+                    <>
+                      <SkeletonCard isDarkMode={isDarkMode} />
+                      <SkeletonCard isDarkMode={isDarkMode} />
+                      <SkeletonCard isDarkMode={isDarkMode} />
+                      <SkeletonCard isDarkMode={isDarkMode} />
+                      <SkeletonCard isDarkMode={isDarkMode} />
+                    </>
+                  ) : (
+                    filteredClinics.map(clinic => (
+                      <button key={clinic.id} onClick={() => { flyToClinic(clinic); }} className={`w-full text-left p-5 rounded-3xl border border-transparent transition-all flex justify-between items-start group cursor-pointer hover:scale-[1.01] active:scale-[0.99] shadow-sm hover:shadow-md ${isDarkMode ? 'hover:bg-white/5 hover:border-white/10' : 'hover:bg-black/5 hover:border-black/10'}`}>
+                          <div className="max-w-[70%]"><h3 className={`font-bold text-[14px] truncate transition-colors ${isDarkMode ? 'group-hover:text-vet-mint text-white' : 'group-hover:text-emerald-600 text-slate-900'}`}>{clinic.name}</h3><p className="text-[10px] font-bold opacity-30 uppercase">{clinic.city}, {clinic.country}</p><div className="flex flex-wrap gap-1 mt-2">{clinic.animal_types?.slice(0, 3).map((t: string) => (<span key={t} className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold tracking-tight opacity-70 ${isDarkMode ? 'bg-white/10 text-white' : 'bg-black/5 text-black'}`}>{t}</span>))}</div></div><div className={`px-2 py-1 rounded-lg text-[11px] font-black tracking-tighter border ${isDarkMode ? 'bg-vet-mint/10 text-vet-mint border-vet-mint/20' : 'bg-emerald-600/10 text-emerald-600 border-emerald-600/20'}`}>★ {getAvg(clinic.reviews)}</div>
+                      </button>
+                    ))
+                  )}
+                  {/* Warning shows even while loading skeletons to keep layout stable */}
                   <LoginWarning />
                 </div>
             </div>
@@ -564,7 +607,7 @@ export default function MapContainer() {
                             ) : (
                                 <div className="space-y-6 pb-20 animate-in slide-in-from-right duration-300">
                                    <div className={`p-5 border rounded-3xl text-center ${isDarkMode ? 'bg-vet-mint/5 border-vet-mint/20' : 'bg-emerald-600/5 border-emerald-600/20'}`}><label className={`text-[11px] font-black uppercase block mb-2 tracking-widest ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>Overall experience</label><RangeSlider value={ratings.overall_rating} max={5} onChange={(val) => setRatings({...ratings, overall_rating: val})} isDarkMode={isDarkMode} /><div className={`text-3xl font-black mt-2 ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{ratings.overall_rating} ★</div></div>
-                                   <div className={`p-5 border rounded-3xl ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center mb-2"><label className="text-[11px] font-bold uppercase opacity-60">Duration of Externship</label><span className={`text-[12px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{ratings.duration_weeks} Weeks</span></div><RangeSlider value={ratings.duration_weeks} max={12} onChange={(val) => setRatings({...ratings, duration_weeks: val})} isDarkMode={isDarkMode} /><div className="flex justify-between text-[9px] opacity-30 mt-2"><span>1 Week</span><span>12 Weeks+</span></div></div>
+                                   <div className={`p-5 border rounded-3xl ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center mb-2"><label className="text-[11px] font-bold uppercase opacity-60">Duration of Externship</label><span className={`text-[12px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{ratings.duration_weeks} Weeks</span></div><RangeSlider value={ratings.duration_weeks} max={4} onChange={(val) => setRatings({...ratings, duration_weeks: val})} isDarkMode={isDarkMode} /><div className="flex justify-between text-[9px] opacity-30 mt-2"><span>1 Week</span><span>4 Weeks+</span></div></div>
                                    <div><label className="text-[10px] font-bold opacity-30 uppercase block mb-2">Year of Externship</label><input type="text" inputMode="numeric" maxLength={4} placeholder="YYYY" value={ratings.externship_year} onChange={(e) => setRatings({...ratings, externship_year: e.target.value.replace(/\D/g,'')})} className={inputStyle} /></div>
                                    <div><label className="text-[10px] font-bold opacity-30 uppercase block mb-2">Which service did you extern with?</label><div className="relative"><Stethoscope className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={14} /><input type="text" placeholder="e.g. Neurology, Oncology, General..." value={ratings.service_externed} onChange={(e) => setRatings({...ratings, service_externed: e.target.value})} className={`pl-9 ${inputStyle}`} /></div></div>
                                    {Object.entries(RUBRIC).map(([key, info]) => (<div key={key} className={`p-5 rounded-3xl border space-y-4 relative ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center"><div className="flex items-center gap-2"><label className="text-[11px] font-bold uppercase opacity-60">{info.label}</label><span className={`text-[11px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{(ratings as any)[key]} / 5</span></div><button className="opacity-30 hover:opacity-100 transition-opacity p-1 cursor-help" onMouseEnter={(e) => handleTooltip(e, info)} onMouseLeave={hideTooltip} onClick={(e) => handleTooltip(e, info)}><Info size={14} /></button></div><RangeSlider value={(ratings as any)[key]} max={5} onChange={(val) => setRatings({...ratings, [key]: val})} isDarkMode={isDarkMode} /></div>))}
