@@ -2,122 +2,138 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-// 1. Standard Client (for public actions like adding a clinic)
+// 1. Standard Client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// 2. Admin Client (for Moderation - Bypasses Row Level Security)
-// ⚠️ You must add SUPABASE_SERVICE_ROLE_KEY to your .env.local file!
-// You can find this in your Supabase Dashboard > Project Settings > API
+// 2. Admin Client (Bypasses RLS to set is_approved)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// --- CONFIGURATION: HEURISTICS ---
-const PROFANITY_LIST = ['badword1', 'badword2', 'shit', 'fuck', 'bitch', 'ass', 'dick', 'crap', 'piss']; 
-
+// --- IMPROVED HEURISTIC CHECK ---
 function runHeuristicCheck(text: string): { safe: boolean; reason?: string } {
   const lower = text.toLowerCase();
+  const words = lower.split(/\s+/).filter(w => w.length > 0);
 
-  // Rule A: Profanity Filter
-  const hasProfanity = PROFANITY_LIST.some(word => lower.includes(word));
-  if (hasProfanity) return { safe: false, reason: 'Profanity detected' };
+  // 1. Length Check
+  if (text.length < 12) return { safe: false, reason: 'Too short' };
 
-  // Rule B: Anti-Spam (Links)
-  // Blocks http, https, www, .com, .org, etc.
-  if (/(http|https|www\.|[\w-]+\.(com|org|net|edu))/i.test(text)) {
-    return { safe: false, reason: 'Links not allowed' };
+  // 2. Profanity Filter
+  const PROFANITY_LIST = ['shit', 'fuck', 'fucking', 'bitch', 'asshole', 'dick', 'pussy']; 
+  if (PROFANITY_LIST.some(word => lower.includes(word))) {
+    return { safe: false, reason: 'Profanity detected' };
   }
 
-  // Rule C: Length & Gibberish
-  if (text.length < 10) return { safe: false, reason: 'Too short' };
-  if (/([a-z])\1{4,}/.test(lower)) return { safe: false, reason: 'Gibberish detected' }; // e.g. "looooooool"
+  // 3. Gibberish Check A: Keyboard Mashing (Long words)
+  if (words.some(word => word.length > 20)) {
+    return { safe: false, reason: 'Keyboard mash (long word)' };
+  }
+
+  // 4. Gibberish Check B: Consonant Clusters
+  // English rarely has 5+ consonants in a row.
+  if (/[bcdfghjklmnpqrstvwxz]{5,}/.test(lower)) {
+    return { safe: false, reason: 'Keyboard mash (consonant cluster)' };
+  }
+
+  // 5. Gibberish Check C: The "Dictionary" Test (MOST EFFECTIVE)
+  // If a comment is decent length but contains ZERO common English words, it's trash.
+  const commonWords = ['the', 'and', 'was', 'very', 'had', 'for', 'with', 'this', 'that', 'not', 'but', 'they', 'clinic', 'great', 'place', 'extern', 'student', 'vet', 'doctor'];
+  const hasCommonWord = words.some(word => commonWords.includes(word));
+  
+  if (text.length > 20 && !hasCommonWord) {
+    return { safe: false, reason: 'Non-sensical content' };
+  }
 
   return { safe: true };
 }
 
-// --- ACTION 1: ADD CLINIC (Your Existing Logic) ---
-export async function addClinic(formData: FormData) {
-  const name = formData.get('name') as string
-  const category = formData.get('category') as string
-  const address = formData.get('address') as string
+// --- UPDATED ACTION ---
+export async function submitReviewAction(reviewData: any) {
+  const { 
+    comment, 
+    overall_rating, 
+    mentorship, 
+    hands_on, 
+    culture, 
+    volume, 
+    duration_weeks, 
+    externship_year,
+    ...rest 
+  } = reviewData;
 
   try {
-    // ONE-TIME GEOCODING
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`,
-      {
-        headers: {
-          'User-Agent': 'VetReviewMap_Community_Project' // Required by OSM policy
-        }
-      }
-    )
-    
-    const geoData = await response.json()
-    
-    if (!geoData || geoData.length === 0) {
-      return { success: false, message: "Location not found. Try adding a City/State." }
-    }
+    // 1. OpenAI Moderation (Safety Check)
+    const modResponse = await fetch("https://api.openai.com/v1/moderations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({ input: comment }),
+    });
+    const modData = await modResponse.json();
+    const isFlaggedByAI = modData.results?.[0]?.flagged || false;
 
-    const lat = parseFloat(geoData[0].lat)
-    const lon = parseFloat(geoData[0].lon)
-
-    const { error } = await supabase.from('clinics').insert([{
-      name,
-      category,
-      address,
-      latitude: lat,
-      longitude: lon,
-      is_approved: false // Admin must approve before it hits the map
-    }])
+    // 2. Run our new Heuristics
+    const heuristic = runHeuristicCheck(comment);
     
-    if (error) throw new Error(error.message)
+    // 3. Final Decision
+    // It is ONLY approved if it is safe AND looks like a real sentence
+    const isApproved = !isFlaggedByAI && heuristic.safe;
+    const moderationNote = isFlaggedByAI 
+        ? 'Flagged by OpenAI Safety' 
+        : (heuristic.reason || 'Auto-Approved');
 
-    return { success: true, message: "Clinic submitted! It will appear once approved." }
-    
+    // 4. Insert into DB
+    const { error } = await supabaseAdmin
+      .from('reviews')
+      .insert({
+        ...rest,
+        comment,
+        overall_rating: Math.round(overall_rating),
+        mentorship: Math.round(mentorship),
+        hands_on: Math.round(hands_on),
+        culture: Math.round(culture),
+        volume: Math.round(volume),
+        duration_weeks: Math.round(duration_weeks),
+        externship_year: parseInt(externship_year) || new Date().getFullYear(),
+        is_approved: isApproved, 
+        moderation_note: moderationNote 
+      });
+
+    if (error) throw error;
+
+    return { 
+      success: true, 
+      message: isApproved 
+        ? "Review published!" 
+        : "Review submitted. It will appear after manual verification." 
+    };
+
   } catch (err: any) {
-    console.error("Geocoding/DB Error:", err)
-    return { success: false, message: "Server error. Please try again later." }
+    console.error("Submission Error:", err);
+    return { success: false, message: "Error submitting review." };
   }
 }
+export async function submitClinicUpdateAction(clinicId: string, userId: string, message: string) {
+  try {
+    const { error } = await supabaseAdmin
+      .from('clinic_updates')
+      .insert({
+        clinic_id: clinicId,
+        user_id: userId,
+        suggested_changes: message,
+        status: 'pending'
+      });
 
-// --- ACTION 2: SUBMIT REVIEW (New Moderation Logic) ---
-export async function submitReviewAction(reviewData: any) {
-  const { comment, ...otherData } = reviewData;
-
-  // 1. Run Heuristic Check
-  const heuristic = runHeuristicCheck(comment);
-  
-  let isApproved = false;
-  let moderationNote = heuristic.reason || 'Pending Manual Review';
-
-  // 2. Logic: If it passes heuristics, we auto-approve it.
-  if (heuristic.safe) {
-    isApproved = true; 
-    moderationNote = 'Auto-Approved (Heuristics)';
+    if (error) throw error;
+    return { success: true, message: "Request sent! A moderator will verify these changes." };
+  } catch (err: any) {
+    console.error("Update Request Error:", err);
+    return { success: false, message: "Failed to send request." };
   }
-
-  // 3. Insert into Supabase using Admin Client
-  // We use supabaseAdmin so we can set the "is_approved" column which regular users shouldn't be able to touch.
-  const { error } = await supabaseAdmin
-    .from('reviews')
-    .insert({
-      ...otherData,
-      comment,
-      is_approved: isApproved, 
-      moderation_note: moderationNote 
-    });
-
-  if (error) {
-    console.error("Submission Error:", error);
-    return { success: false, message: error.message };
-  }
-
-  return { 
-    success: true, 
-    message: isApproved ? "Review posted successfully!" : "Review submitted for moderation." 
-  };
 }
