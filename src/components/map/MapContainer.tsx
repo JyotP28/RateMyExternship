@@ -978,7 +978,7 @@ const submitReview = async () => {
           <div className={`p-4 rounded-3xl backdrop-blur-xl border shadow-2xl flex flex-col gap-1 transition-colors ${isDarkMode ? 'bg-black/60 border-white/10 text-white' : 'bg-white/80 border-black/10 text-black'}`}>
               <div className="flex items-center gap-3">
                   <p className="text-[11px] font-bold tracking-tight">© {new Date().getFullYear()} RateMyExternship</p>
-                  <a href="https://www.linkedin.com/in/jyot-patel-5792921b3/" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a>
+                  <a href="https://www.linkedin.com/in/jyotpatel28" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a>
                   <button onClick={() => setIsFeedbackOpen(true)} className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`} title="Send Feedback"><MessageSquare size={14} /></button>
               </div>
               <p className="text-[9px] opacity-60 font-medium">Created by Jyot Patel, DVM Student at WSU</p>
