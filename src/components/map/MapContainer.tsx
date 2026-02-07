@@ -770,7 +770,7 @@ const submitReview = async () => {
                 <span className={isDarkMode ? 'text-vet-mint' : 'text-emerald-500'}>Externship</span>
               </h1>
               <p className="text-lg md:text-xl text-white/60 max-w-2xl leading-relaxed mb-12">
-                The community-driven platform for <span className="text-white font-bold">Veterinary Students</span> to discover, rate, and share honest experiences about clinical externships worldwide.
+                The community-driven platform for <span className="text-white font-bold">Veterinary Students</span> to discover, rate, and share honest experiences about clinical externships.
               </p>
               <div className="grid md:grid-cols-3 gap-6 w-full mb-16">
                  <div className="p-8 rounded-4xl border border-white/10 bg-white/5 backdrop-blur-sm text-left group hover:bg-white/10 transition-all">

@@ -9,10 +9,21 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// --- 1. ADD YOUR EXCEPTIONS HERE ---
+const ALLOWED_DOMAINS = [
+  'uoguelph.ca',
+  'usask.ca',
+  'upei.ca',
+  'ucalgary.ca',
+  'umontreal.ca',
+  'rvc.ac.uk',
+  // Add other international vet school domains here
+];
+
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  isDarkMode: boolean; // Added this prop
+  isDarkMode: boolean; 
 }
 
 export default function AuthModal({ isOpen, onClose, isDarkMode }: AuthModalProps) {
@@ -33,13 +44,20 @@ export default function AuthModal({ isOpen, onClose, isDarkMode }: AuthModalProp
 
     try {
       if (isSignUp) {
-        // Strict .edu validation
-        if (!email.trim().toLowerCase().endsWith('.edu')) {
-            throw new Error("You must have a .edu domain or request your school specific email domain in the feedback forum.");
+        // --- 2. UPDATED VALIDATION LOGIC ---
+        const lowerEmail = email.trim().toLowerCase();
+        const domain = lowerEmail.split('@')[1]; // Get the part after @
+        
+        const isEdu = lowerEmail.endsWith('.edu');
+        const isAllowedDomain = ALLOWED_DOMAINS.includes(domain);
+
+        if (!isEdu && !isAllowedDomain) {
+            throw new Error("Must use a .edu email or an approved university domain (e.g. uoguelph.ca).");
         }
+        // -----------------------------------
 
         const { error } = await supabase.auth.signUp({
-          email,
+          email: lowerEmail,
           password,
         });
         if (error) throw error;
@@ -119,8 +137,9 @@ export default function AuthModal({ isOpen, onClose, isDarkMode }: AuthModalProp
                         />
                     </div>
                     {isSignUp && (
+                        // --- 3. UPDATED HELPER TEXT ---
                         <p className={`text-[10px] ml-1 ${subText}`}>
-                            * Must be a <strong>.edu</strong> address to verify student status.
+                            * Must be a <strong>.edu</strong> or approved university domain.
                         </p>
                     )}
                 </div>
