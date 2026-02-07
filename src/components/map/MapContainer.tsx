@@ -776,7 +776,7 @@ const submitReview = async () => {
                  <div className="p-8 rounded-4xl border border-white/10 bg-white/5 backdrop-blur-sm text-left group hover:bg-white/10 transition-all">
                     <MapIcon className="text-vet-mint mb-4" size={24}/>
                     <h3 className="text-white font-black uppercase italic text-sm mb-2">Find Clinics</h3>
-                    <p className="text-xs text-white/50 leading-relaxed">Search thousands of locations by animal focus, stipend availability, and provided housing.</p>
+                    <p className="text-xs text-white/50 leading-relaxed">Search hundreds of locations by animal focus, stipend availability, and provided housing.</p>
                  </div>
                  <div className="p-8 rounded-4xl border border-white/10 bg-white/5 backdrop-blur-sm text-left group hover:bg-white/10 transition-all">
                     <Star className="text-vet-mint mb-4" size={24}/>
