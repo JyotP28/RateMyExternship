@@ -31,7 +31,7 @@ const PROFANITY_LIST = ['badword1', 'badword2', 'shit', 'fuck', 'fucking','fucke
 const RUBRIC: Record<string, { label: string, low: string, high: string }> = {
   mentorship: { label: "Mentorship", low: "Minimal guidance", high: "Active teaching" },
   hands_on: { label: "Hands-on", low: "Shadowing only", high: "Primary roles" },
-  culture: { label: "Culture", low: "Toxic environment", high: "Student-focused" },
+  culture: { label: "Culture", low: "Negative Experience", high: "Positive Experience" },
   volume: { label: "Caseload", low: "Slow/repetitive", high: "High volume" }
 };
 
@@ -210,6 +210,21 @@ export default function MapContainer() {
     }
   }, [clinics]);
 
+  // NEW: Handle Supabase Auth Redirect Errors
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      // Check if the URL contains the specific otp_expired error
+      if (hash.includes('error_code=otp_expired')) {
+        // 1. Show a helpful message to the user
+        showToast("Email link expired (often caused by email security scanners). Please log in to request a new one.", "error");
+        
+        // 2. Clean the URL so the Supabase client doesn't get stuck in an error state
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!mounted) return;
 
@@ -252,7 +267,10 @@ const loadData = useCallback(async () => {
             reviews: c.reviews
                 ?.filter((r: any) => r.is_approved === true) 
                 .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        }));
+        }))
+        // ADD THIS LINE BELOW:
+        .sort((a: any, b: any) => a.name.localeCompare(b.name)); 
+
         setClinics(sorted);
     }
     setLoadingClinics(false);
@@ -366,7 +384,7 @@ const loadData = useCallback(async () => {
             <div style="font-family: sans-serif; padding: 4px; color: ${textColor};">
               <div style="margin-bottom: 8px;">
                 <strong style="color: #059669; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;">
-                  ${clinicsAtLoc.length} Clinics here
+                  ${clinicsAtLoc.length} Externships here
                 </strong>
               </div>
               <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -702,19 +720,32 @@ const submitReview = async () => {
     ) : null
   );
 
+// 1. Define the dynamic colors as CSS variables
+  const popupThemeStyles = {
+    '--popup-bg': isDarkMode ? '#1a1a1a' : '#ffffff',
+    '--popup-text': isDarkMode ? '#ffffff' : '#0f172a',
+    '--popup-border': isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+    '--popup-tip': isDarkMode ? '#1a1a1a' : '#ffffff',
+  } as React.CSSProperties;
+
   return (
-    <div className={`relative w-full h-dvh min-h-screen font-sans antialiased overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-charcoal text-white' : 'bg-slate-50 text-slate-900'}`} onClick={hideTooltip}>
+    <div 
+      className={`relative w-full h-dvh min-h-screen font-sans antialiased overflow-hidden transition-colors duration-500 ${isDarkMode ? 'bg-charcoal text-white' : 'bg-slate-50 text-slate-900'}`} 
+      onClick={hideTooltip}
+      // 2. Inject the variables here
+      style={popupThemeStyles} 
+    >
       <style jsx global>{`
         .custom-map-popup .maplibregl-popup-content { 
             border-radius: 16px !important; 
             padding: 10px !important; 
             box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important; 
-            background: ${isDarkMode ? '#1a1a1a' : '#ffffff'} !important;
-            color: ${isDarkMode ? '#ffffff' : '#0f172a'} !important;
-            border: 1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'} !important;
+            background: var(--popup-bg) !important;
+            color: var(--popup-text) !important;
+            border: 1px solid var(--popup-border) !important;
             min-width: 200px;
         }
-        .custom-map-popup .maplibregl-popup-tip { border-top-color: ${isDarkMode ? '#1a1a1a' : '#ffffff'} !important; }
+        .custom-map-popup .maplibregl-popup-tip { border-top-color: var(--popup-tip) !important; }
         .scroll-container { -webkit-overflow-scrolling: touch; }
       `}</style>
       
@@ -794,7 +825,7 @@ const submitReview = async () => {
       
       <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-30 md:hidden flex gap-2 pb-[env(safe-area-inset-bottom)]">{!selectedClinic && (<button onClick={() => setShowMobileMap(!showMobileMap)} className={`flex items-center gap-2 px-6 py-3 rounded-full font-bold shadow-2xl animate-in fade-in slide-in-from-bottom-10 ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'} ${btnHover}`}>{showMobileMap ? <><MapIcon size={18} /> Show Map</> : <><List size={18} /> Show List</>}</button>)}</div>
       
-      <div className="absolute bottom-4 left-4 z-20 hidden md:flex flex-col items-start gap-2"><div className={`p-4 rounded-3xl backdrop-blur-xl border shadow-2xl flex flex-col gap-1 transition-colors ${isDarkMode ? 'bg-black/60 border-white/10 text-white' : 'bg-white/80 border-black/10 text-black'}`}><div className="flex items-center gap-3"><p className="text-[11px] font-bold tracking-tight">© {new Date().getFullYear()} RateMyExternship</p><a href="https://www.linkedin.com/in/jyot-patel-5792921b3/" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a><button onClick={() => setIsFeedbackOpen(true)} className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`} title="Send Feedback"><MessageSquare size={14} /></button></div><p className="text-[9px] opacity-60 font-medium">Created by Jyot Patel, DVM Student at WSU</p></div></div>
+      <div className="absolute bottom-4 left-4 z-20 hidden md:flex flex-col items-start gap-2"><div className={`p-4 rounded-3xl backdrop-blur-xl border shadow-2xl flex flex-col gap-1 transition-colors ${isDarkMode ? 'bg-black/60 border-white/10 text-white' : 'bg-white/80 border-black/10 text-black'}`}><div className="flex items-center gap-3"><p className="text-[11px] font-bold tracking-tight">© {new Date().getFullYear()} RateMyExternship</p><a href="https://www.linkedin.com/in/jyot-patel-5792921b3/" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a><button onClick={() => setIsFeedbackOpen(true)} className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`} title="Send Feedback"><MessageSquare size={14} /></button></div></div></div>
       
       <aside className={getSidebarClass()} onTouchMove={stopPropagation}>
         <div className={`h-full w-full relative overflow-hidden rounded-t-3xl md:rounded-4xl border-l md:border shadow-2xl backdrop-blur-xl flex flex-col transition-all ${isDarkMode ? 'bg-black/90 md:bg-black/85 border-white/20' : 'bg-white/95 border-black/10'}`}>
@@ -981,7 +1012,6 @@ const submitReview = async () => {
                   <a href="https://www.linkedin.com/in/jyotpatel28" target="_blank" rel="noreferrer" className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`}><Linkedin size={14}/></a>
                   <button onClick={() => setIsFeedbackOpen(true)} className={`p-1.5 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/20 text-white' : 'hover:bg-black/10 text-black'}`} title="Send Feedback"><MessageSquare size={14} /></button>
               </div>
-              <p className="text-[9px] opacity-60 font-medium">Created by Jyot Patel, DVM Student at WSU</p>
           </div>
       </div>
 
