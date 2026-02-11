@@ -175,6 +175,7 @@ export default function MapContainer() {
   });
 
   const [isReviewing, setIsReviewing] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   
   const [ratings, setRatings] = useState({ 
     overall_rating: 5, mentorship: 5, hands_on: 5, culture: 5, volume: 5, 
@@ -611,33 +612,56 @@ useEffect(() => {
 
 const submitReview = async () => {
     if (!userId) return setIsAuthOpen(true);
-    if (!ratings.service_externed) { showToast("Please specify the service you externed with.", 'error'); return; }
-    if (!comment || comment.length < 10) { showToast("Comment must be at least 10 characters.", 'error'); return; }
-    if (!comment || comment.length > 1400) { showToast("Comment is too long. Please be more concise.", 'error'); return; }
     
-    const reviewData = {
-      clinic_id: selectedClinic.id,
-      user_id: userId,
-      overall_rating: Math.round(ratings.overall_rating),
-      mentorship: Math.round(ratings.mentorship),
-      hands_on: Math.round(ratings.hands_on),
-      culture: Math.round(ratings.culture),
-      volume: Math.round(ratings.volume),
-      duration_weeks: Math.round(ratings.duration_weeks),
-      service_externed: ratings.service_externed,
-      externship_year: parseInt(ratings.externship_year) || new Date().getFullYear(),
-      comment,
-    };
+    // Validation Checks
+    if (!ratings.service_externed) { 
+        showToast("Please specify the service you externed with.", 'error'); 
+        return; 
+    }
+    if (!comment || comment.length < 10) { 
+        showToast("Comment must be at least 10 characters.", 'error'); 
+        return; 
+    }
+    if (!comment || comment.length > 1400) { 
+        showToast("Comment is too long. Please be more concise.", 'error'); 
+        return; 
+    }
+    
+    setIsSubmittingReview(true); // 1. Start Loading
 
-    const result = await submitReviewAction(reviewData);
+    try {
+      const reviewData = {
+        clinic_id: selectedClinic.id,
+        user_id: userId,
+        overall_rating: Math.round(ratings.overall_rating),
+        mentorship: Math.round(ratings.mentorship),
+        hands_on: Math.round(ratings.hands_on),
+        culture: Math.round(ratings.culture),
+        volume: Math.round(ratings.volume),
+        duration_weeks: Math.round(ratings.duration_weeks),
+        service_externed: ratings.service_externed,
+        externship_year: parseInt(ratings.externship_year) || new Date().getFullYear(),
+        comment,
+      };
 
-    if (result.success) {
-        setIsReviewing(false);
-        setComment('');
-        showToast(result.message, 'success');
-        loadData();
-    } else {
-        showToast("Error: " + result.message, 'error');
+      // 2. Execute Server Action safely
+      const result = await submitReviewAction(reviewData);
+
+      if (result.success) {
+          setIsReviewing(false);
+          setComment('');
+          // Optional: Reset ratings to defaults here if you want
+          showToast(result.message, 'success');
+          loadData(); // Refresh map data
+      } else {
+          showToast("Error: " + result.message, 'error');
+      }
+    } catch (error) {
+      // 3. Catch unexpected crashes (Network errors, etc.)
+      console.error("Submit review error:", error);
+      showToast("Something went wrong. Please try again.", 'error');
+    } finally {
+      setIsSubmittingReview(false); // 4. Stop Loading (Always runs)
     }
   };
 
@@ -992,7 +1016,20 @@ const submitReview = async () => {
                                    <div><label className="text-[10px] font-bold opacity-30 uppercase block mb-2">Which service did you extern with?</label><div className="relative"><Stethoscope className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={14} /><input type="text" placeholder="e.g. Neurology, Oncology, General..." value={ratings.service_externed} onChange={(e) => setRatings({...ratings, service_externed: e.target.value})} className={`pl-9 ${inputStyle}`} /></div></div>
                                    {Object.entries(RUBRIC).map(([key, info]) => (<div key={key} className={`p-5 rounded-3xl border space-y-4 relative ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}><div className="flex justify-between items-center"><div className="flex items-center gap-2"><label className="text-[11px] font-bold uppercase opacity-60">{info.label}</label><span className={`text-[11px] font-black ${isDarkMode ? 'text-vet-mint' : 'text-emerald-600'}`}>{(ratings as any)[key]} / 5</span></div><button className="opacity-30 hover:opacity-100 transition-opacity p-1 cursor-help" onMouseEnter={(e) => handleTooltip(e, info)} onMouseLeave={hideTooltip} onClick={(e) => handleTooltip(e, info)}><Info size={14} /></button></div><RangeSlider value={(ratings as any)[key]} max={5} onChange={(val) => setRatings({...ratings, [key]: val})} isDarkMode={isDarkMode} /></div>))}
                                    <textarea placeholder="Tell us more about your experience..." value={comment} onChange={e => setComment(e.target.value)} className={`w-full p-4 rounded-2xl text-[13px] h-32 outline-none border transition-all ${isDarkMode ? 'bg-white/5 border-white/10 focus:border-vet-mint/30' : 'bg-black/5 border-black/10 focus:border-emerald-600/30 text-slate-900 placeholder:text-slate-500'}`} />
-                                   <button onClick={submitReview} className={`w-full py-4 rounded-2xl font-black uppercase text-[11px] ${btnHover} ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'}`}>Submit Review</button>
+                                   <button 
+  onClick={submitReview} 
+  disabled={isSubmittingReview} 
+  className={`w-full py-4 rounded-2xl font-black uppercase text-[11px] ${btnHover} flex items-center justify-center gap-2 ${isDarkMode ? 'bg-vet-mint text-charcoal' : 'bg-emerald-600 text-white'} ${isSubmittingReview ? 'opacity-50 cursor-not-allowed' : ''}`}
+>
+  {isSubmittingReview ? (
+    <>
+      <Loader2 className="animate-spin" size={14} /> 
+      Submitting...
+    </>
+  ) : (
+    'Submit Review'
+  )}
+</button>
                                 </div>
                             )}
                         </div>
